@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Default values
-DEFAULT_MTDPARTS="512k(u-boot),512k(u-boot-env),256k(factory),-(firmware)"
+DEFAULT_MTDPARTS="512k(u-boot),512k(u-boot-env),512k(factory),-(firmware)"
 DEFAULT_BAUDRATE="115200"
 
 FLASH=""
@@ -20,7 +20,7 @@ YES="0"
 # Partition defaults
 DEFAULT_UBOOT_SIZE="512k"
 DEFAULT_UBOOT_ENV_SIZE="512k"
-DEFAULT_FACTORY_SIZE="256k"
+DEFAULT_FACTORY_SIZE="512k"
 
 # Partition sizes (optional, used to build MTDPARTS)
 UBOOT_SIZE=""
@@ -36,7 +36,7 @@ Usage:
 Options:
   --flash {NOR|NAND|NMBM}         闪存类型
   --mtdparts STRING               MTD 分区表（不含设备前缀），示例：
-                                  512k(u-boot),512k(u-boot-env),256k(factory),-(firmware)
+                                  512k(u-boot),512k(u-boot-env),512k(factory),-(firmware)
   --uboot-size SIZE               u-boot 分区大小（如 512k/1m）
   --uboot-env-size SIZE           u-boot-env 分区大小（如 512k）
   --factory-size SIZE             factory 分区大小（如 256k/128k）
@@ -55,7 +55,7 @@ Options:
     --flash NOR \
     --uboot-size 512k \
     --uboot-env-size 512k \
-    --factory-size 256k \
+    --factory-size 512k \
     --kernel-offset 0x60000 \
     --reset-pin 13 \
     --sysled-pin 14 \
@@ -202,19 +202,19 @@ interactive() {
   # 分区大小分别询问
   UBOOT_SIZE=$(ask "u-boot 分区大小 (示例 512k/1m)" "${DEFAULT_UBOOT_SIZE}")
   UBOOT_ENV_SIZE=$(ask "u-boot-env 分区大小 (示例 512k)" "${DEFAULT_UBOOT_ENV_SIZE}")
-  FACTORY_SIZE=$(ask "factory 分区大小 (示例 256k)" "${DEFAULT_FACTORY_SIZE}")
+  FACTORY_SIZE=$(ask "factory 分区大小 (示例 512k)" "${DEFAULT_FACTORY_SIZE}")
   MTDPARTS=$(build_mtdparts)
   # kernel offset，不同闪存可能不同，这里仅做示例提示
-  local example_offset="0x60000"
+  local example_offset="0x180000"
   KERNEL_OFFSET=$(ask "输入内核偏移 (示例 ${example_offset})" "${example_offset}")
   # GPIO
   RESET_PIN=$(ask "复位按钮 GPIO (0-48，-1 禁用)" "-1")
   SYSLED_PIN=$(ask "系统 LED GPIO (0-48，-1 禁用)" "-1")
   # CPU 频率
-  local cpusel=$(select_with_default "选择 CPU 频率 (MHz)：" "880" 880 1000 1200)
+  local cpusel=$(select_with_default "选择 CPU 频率 (MHz)：" "1000" 880 1000 1100 1200)
   CPUFREQ="${cpusel}"
   # RAM 频率
-  local ramsel=$(select_with_default "选择 DRAM 速率 (MT/s)：" "1066" 400 800 1066 1200)
+  local ramsel=$(select_with_default "选择 DRAM 速率 (MT/s)：" "1200" 400 800 1066 1200)
   RAMFREQ="${ramsel}"
   # DDR 参数
   echo "选择 DDR 初始化参数（或留空自定义输入）："
