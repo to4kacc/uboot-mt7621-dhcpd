@@ -37,9 +37,9 @@ Options:
   --flash {NOR|NAND|NMBM}         闪存类型
   --mtdparts STRING               MTD 分区表（不含设备前缀），示例：
                                   512k(u-boot),512k(u-boot-env),512k(factory),-(firmware)
-  --uboot-size SIZE               u-boot 分区大小（如 512k/1m）
-  --uboot-env-size SIZE           u-boot-env 分区大小（如 512k）
-  --factory-size SIZE             factory 分区大小（如 256k/128k）
+  --uboot-size SIZE               u-boot 分区大小（可选/旧用法：仅用于拼接默认分区表）
+  --uboot-env-size SIZE           u-boot-env 分区大小（可选/旧用法：仅用于拼接默认分区表）
+  --factory-size SIZE             factory 分区大小（可选/旧用法：仅用于拼接默认分区表）
   --kernel-offset VALUE           内核偏移（例如 0x60000 或十进制数）
   --reset-pin INT                 复位按键 GPIO（0-48，或 -1 禁用）
   --sysled-pin INT                系统 LED GPIO（0-48，或 -1 禁用）
@@ -52,16 +52,14 @@ Options:
 
 示例（非交互）:
   ./build.sh \
-    --flash NOR \
-    --uboot-size 512k \
-    --uboot-env-size 512k \
-    --factory-size 512k \
-    --kernel-offset 0x60000 \
-    --reset-pin 13 \
-    --sysled-pin 14 \
-    --cpufreq 880 \
-    --ramfreq 1066 \
-    --ddrparam DDR3-256MiB \
+    --flash NMBM \
+    --mtdparts "512k(u-boot),512k(u-boot-env),512k(factory),-(firmware)" \
+    --kernel-offset 0x180000 \
+    --reset-pin 7 \
+    --sysled-pin 13 \
+    --cpufreq 1000 \
+    --ramfreq 1200 \
+    --ddrparam DDR3-512MiB \
     --baudrate 115200 \
     --yes
 EOF
@@ -106,10 +104,19 @@ ask() {
   local default_val="${1:-}"; shift || true
   local var
   if [[ -n "${default_val}" ]]; then
-    read -r -p "${prompt} [默认: ${default_val}] > " var || true
+    if [[ -t 0 ]]; then
+      # -e: readline（支持方向键/历史）; -i: 预填默认值
+      read -e -r -p "${prompt} [默认: ${default_val}] > " -i "${default_val}" var || true
+    else
+      read -r -p "${prompt} [默认: ${default_val}] > " var || true
+    fi
     echo "${var:-${default_val}}"
   else
-    read -r -p "${prompt} > " var || true
+    if [[ -t 0 ]]; then
+      read -e -r -p "${prompt} > " var || true
+    else
+      read -r -p "${prompt} > " var || true
+    fi
     echo "${var}"
   fi
 }
@@ -123,7 +130,11 @@ select_from() {
     echo "  ${i}) ${it}" >&2
     ((i++))
   done
-  read -r -p "选择序号 (输入数字 1-${#items[@]}) > " idx || true
+  if [[ -t 0 ]]; then
+    read -e -r -p "选择序号 (输入数字 1-${#items[@]}) > " idx || true
+  else
+    read -r -p "选择序号 (输入数字 1-${#items[@]}) > " idx || true
+  fi
   if [[ -z "${idx}" ]] || ! [[ "${idx}" =~ ^[0-9]+$ ]] || (( idx < 1 || idx > ${#items[@]} )); then
     echo ""; return 1
   fi
@@ -140,7 +151,11 @@ select_with_default() {
     echo "  ${i}) ${it}" >&2
     ((i++))
   done
-  read -r -p "选择序号 (默认: ${default_val}) > " idx || true
+  if [[ -t 0 ]]; then
+    read -e -r -p "选择序号 (默认: ${default_val}) > " idx || true
+  else
+    read -r -p "选择序号 (默认: ${default_val}) > " idx || true
+  fi
   if [[ -z "${idx}" ]]; then
     echo "${default_val}"; return 0
   fi
@@ -151,8 +166,18 @@ select_with_default() {
 }
 
 validate() {
-  # MTDPARTS 格式基本校验（需包含 ),-(firmware)）
-  if [[ -z "${MTDPARTS}" ]] || ! echo -n "${MTDPARTS}" | grep -q "),-(firmware)"; then
+  # MTDPARTS 基本校验：允许用户重命名/新增分区，但必须包含 firmware 分区
+  # 注意：脚本期望传入的是“不含设备前缀”的分区串（不要包含 spi0.0: 之类前缀）
+  if [[ -z "${MTDPARTS}" ]]; then
+    echo "错误: 未提供 MTD 分区表，示例：${DEFAULT_MTDPARTS}"; exit 1
+  fi
+  if echo -n "${MTDPARTS}" | grep -Eq '^[^,()]+:'; then
+    echo "错误: MTD 分区表请勿包含设备前缀（例如 spi0.0:），应形如：${DEFAULT_MTDPARTS}"; exit 1
+  fi
+  if ! echo -n "${MTDPARTS}" | grep -q "(firmware)"; then
+    echo "错误: MTD 分区表必须包含名为 firmware 的分区，例如：${DEFAULT_MTDPARTS}"; exit 1
+  fi
+  if ! echo -n "${MTDPARTS}" | grep -Eq '\([^()]+\)'; then
     echo "错误: MTD 分区表格式不合法，示例：${DEFAULT_MTDPARTS}"; exit 1
   fi
   # 若提供了独立分区大小，进行基本合法性校验
@@ -199,11 +224,9 @@ validate() {
 interactive() {
   # FLASH 类型
   FLASH=$(select_with_default "选择闪存类型:" "NMBM" NOR NAND NMBM)
-  # 分区大小分别询问
-  UBOOT_SIZE=$(ask "u-boot 分区大小 (示例 512k/1m)" "${DEFAULT_UBOOT_SIZE}")
-  UBOOT_ENV_SIZE=$(ask "u-boot-env 分区大小 (示例 512k)" "${DEFAULT_UBOOT_ENV_SIZE}")
-  FACTORY_SIZE=$(ask "factory 分区大小 (示例 512k)" "${DEFAULT_FACTORY_SIZE}")
-  MTDPARTS=$(build_mtdparts)
+  # 分区表：允许用户重命名分区或新增自定义分区
+  # 说明：这里输入的是“不含设备前缀”的分区串；且必须包含 (firmware) 分区
+  MTDPARTS=$(ask "输入 MTD 分区表（不含设备前缀，需包含 firmware 分区）" "${DEFAULT_MTDPARTS}")
   # kernel offset，不同闪存可能不同，这里仅做示例提示
   local example_offset="0x180000"
   KERNEL_OFFSET=$(ask "输入内核偏移 (示例 ${example_offset})" "${example_offset}")
@@ -242,7 +265,7 @@ summary() {
   cat <<EOF
 将执行：
   ./customize.sh '${FLASH}' '${MTDPARTS}' '${KERNEL_OFFSET}' '${RESET_PIN}' \
-                  '${SYSLED_PIN}' '${CPUFREQ}' '${RAMFREQ}' '${DDRPARM}' '${BAUDRATE}'
+  '${SYSLED_PIN}' '${CPUFREQ}' '${RAMFREQ}' '${DDRPARM}' '${BAUDRATE}'
 EOF
 }
 
@@ -259,7 +282,11 @@ main() {
   validate
   summary
   if [[ "${YES}" != "1" ]]; then
-    read -r -p "确认执行？[y/N] " confirm || true
+    if [[ -t 0 ]]; then
+      read -e -r -p "确认执行？[y/N] " confirm || true
+    else
+      read -r -p "确认执行？[y/N] " confirm || true
+    fi
     if [[ "${confirm,,}" != "y" ]]; then
       echo "已取消。"; exit 0
     fi
