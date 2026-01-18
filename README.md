@@ -1,3 +1,10 @@
+
+***STOP Maintenance due to the development device was damaged.***
+
+***由于开发设备损坏，停止维护。***
+
+---
+
 # MediaTek MT7621 U-Boot with Failsafe Mode
 
 ![Web Recovery Page](uboot.png)
